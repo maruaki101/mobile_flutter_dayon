@@ -39,7 +39,7 @@ class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('履歴'),
+        title: const Text('飲んだ数カレンダー'),
       ),
       body: SingleChildScrollView(
         child: Padding(
