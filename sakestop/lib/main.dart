@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:table_calendar/table_calendar.dart';
+import 'calendar_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -34,7 +34,6 @@ class _MyHomePageState extends State<MyHomePage> {
   int _drinkCount = 0;
   final double _averageDrinks = 8.0;
   late SharedPreferences _prefs;
-  int _selectedTabIndex = 0;
 
   @override
   void initState() {
@@ -88,26 +87,24 @@ class _MyHomePageState extends State<MyHomePage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: Text(widget.title),
       ),
-      body: _selectedTabIndex == 0
-          ? _buildCounterTab()
-          : _buildCalendarTab(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedTabIndex,
-        onTap: (index) {
-          setState(() {
-            _selectedTabIndex = index;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle),
-            label: 'カウント',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: '履歴',
-          ),
-        ],
+      body: _buildCounterTab(),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.all(8.0),
+        child: ElevatedButton.icon(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => CalendarHistoryScreen(
+                  prefs: _prefs,
+                  formatDate: _formatDate,
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.calendar_today),
+          label: const Text('履歴'),
+        ),
       ),
     );
   }
@@ -176,112 +173,6 @@ class _MyHomePageState extends State<MyHomePage> {
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildCalendarTab() {
-    return CalendarHistoryScreen(prefs: _prefs, formatDate: _formatDate);
-  }
-}
-
-class CalendarHistoryScreen extends StatefulWidget {
-  final SharedPreferences prefs;
-  final Function(DateTime) formatDate;
-
-  const CalendarHistoryScreen({
-    super.key,
-    required this.prefs,
-    required this.formatDate,
-  });
-
-  @override
-  State<CalendarHistoryScreen> createState() => _CalendarHistoryScreenState();
-}
-
-class _CalendarHistoryScreenState extends State<CalendarHistoryScreen> {
-  late DateTime _selectedDay;
-  late DateTime _focusedDay;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedDay = DateTime.now();
-    _focusedDay = DateTime.now();
-  }
-
-  int _getCountForDate(DateTime date) {
-    final dateStr = widget.formatDate(date);
-    return widget.prefs.getInt(dateStr) ?? 0;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    int selectedCount = _getCountForDate(_selectedDay);
-
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TableCalendar(
-              firstDay: DateTime.utc(2024, 1, 1),
-              lastDay: DateTime.utc(2026, 12, 31),
-              focusedDay: _focusedDay,
-              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-              onDaySelected: (selectedDay, focusedDay) {
-                setState(() {
-                  _selectedDay = selectedDay;
-                  _focusedDay = focusedDay;
-                });
-              },
-              headerStyle: const HeaderStyle(
-                formatButtonVisible: false,
-                titleCentered: true,
-              ),
-              calendarStyle: CalendarStyle(
-                selectedDecoration: BoxDecoration(
-                  color: Colors.orange,
-                  shape: BoxShape.circle,
-                ),
-                todayDecoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.5),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  children: [
-                    Text(
-                      '${_selectedDay.year}年${_selectedDay.month}月${_selectedDay.day}日',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      '$selectedCount',
-                      style: Theme.of(context).textTheme.displayLarge,
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      '杯',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
