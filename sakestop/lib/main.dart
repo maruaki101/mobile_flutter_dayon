@@ -35,18 +35,29 @@ class Drink {
 
   // 純アルコール量を計算 (g)
   double calculatePureAlcohol() {
-    return (volume * alcoholPercentage * 0.8) / 100;
+    final result = (volume * alcoholPercentage * 0.8) / 100;
+    print('DEBUG: calculatePureAlcohol: ($volume * $alcoholPercentage * 0.8) / 100 = $result');
+    return result;
   }
 }
 
 // 飲料マスターデータ（ハードコード）
 final List<Drink> drinkMenu = [
-  Drink(name: 'ビール', volume: 500, alcoholPercentage: 5),
-  Drink(name: 'ハイボール', volume: 180, alcoholPercentage: 7),
-  Drink(name: '日本酒', volume: 180, alcoholPercentage: 15),
-  Drink(name: '焼酎ロック', volume: 60, alcoholPercentage: 25),
-  Drink(name: 'ワイン', volume: 150, alcoholPercentage: 12),
-  Drink(name: 'サワー', volume: 200, alcoholPercentage: 8),
+  // アルコール
+  Drink(name: '生ビール', volume: 500, alcoholPercentage: 5),    // 純アルコール20.0g
+  Drink(name: '缶ビール', volume: 350, alcoholPercentage: 5),    // 純アルコール14.0g
+  Drink(name: '日本酒', volume: 180, alcoholPercentage: 15),     // 純アルコール21.6g
+  Drink(name: 'ハイボール', volume: 350, alcoholPercentage: 7),  // 純アルコール19.6g
+  Drink(name: '赤ワイン', volume: 125, alcoholPercentage: 12),   // 純アルコール12.0g
+  Drink(name: 'チューハイ', volume: 350, alcoholPercentage: 5),  // 純アルコール14.0g
+  // ノンアルコール
+  Drink(name: 'ウーロン茶', volume: 200, alcoholPercentage: 0),
+  Drink(name: 'コーラ', volume: 200, alcoholPercentage: 0),
+  Drink(name: 'オレンジジュース', volume: 200, alcoholPercentage: 0),
+  // フード
+  Drink(name: '枝豆', volume: 0, alcoholPercentage: 0),
+  Drink(name: 'から揚げ', volume: 0, alcoholPercentage: 0),
+  Drink(name: '刺身盛り合わせ', volume: 0, alcoholPercentage: 0),
 ];
 
 // ========== メインアプリ ==========
@@ -63,7 +74,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
   double _totalPureAlcohol = 0.0;
   List<OrderRecord> _orderHistory = [];
   DateTime? _lastPaceNotificationAt;
-  final Duration _paceCooldown = const Duration(minutes: 30);
+  final Duration _paceCooldown = const Duration(minutes: 20);
 
   void _startSession(String tableId) {
     setState(() {
@@ -77,6 +88,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     final pureAlcohol = drink.calculatePureAlcohol();
     final now = DateTime.now();
     
+    print('DEBUG: _addDrink called: name=${drink.name}, volume=${drink.volume}ml, alcohol%=${drink.alcoholPercentage}%, pureAlcohol=$pureAlcohol g');
+    
     setState(() {
       _totalPureAlcohol += pureAlcohol;
       _orderHistory.add(OrderRecord(
@@ -86,8 +99,31 @@ class _SakeStopAppState extends State<SakeStopApp> {
       ));
     });
 
-    // 摂取ペース通知をチェック
-    _checkPaceNotification();
+    // ペース通知をチェック
+    final isPaceAlert = _checkPaceNotification();
+
+    // 過去20分の合計を取得（ペース通知時のメッセージ用）
+    final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
+    double alcoholIn20Minutes = 0.0;
+    for (final order in _orderHistory) {
+      if (order.timestamp.isAfter(twentyMinutesAgo)) {
+        alcoholIn20Minutes += order.pureAlcohol;
+      }
+    }
+
+    final message = isPaceAlert
+        ? '${drink.name} を注文しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
+        : '${drink.name} を注文しました';
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(
+      content: Text(message),
+      duration: const Duration(seconds: 4),
+      action: SnackBarAction(
+        label: '閉じる',
+        onPressed: () => messenger.hideCurrentSnackBar(),
+      ),
+    ));
   }
 
   void _resetSession() {
@@ -98,35 +134,41 @@ class _SakeStopAppState extends State<SakeStopApp> {
     });
   }
 
-  // 30分以内に20g以上摂取した場合に通知
-  void _checkPaceNotification() {
+  // 20分以内に60g以上摂取した場合に通知（bool値を返す）
+  bool _checkPaceNotification() {
     final now = DateTime.now();
-    final thirtyMinutesAgo = now.subtract(const Duration(minutes: 30));
+    final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
 
-    // 過去30分以内の注文を集計
-    double alcoholIn30Minutes = 0.0;
+    print('DEBUG: now=$now, twentyMinutesAgo=$twentyMinutesAgo');
+    print('DEBUG: orderHistory length=${_orderHistory.length}');
+
+    // 過去20分以内の注文を集計
+    double alcoholIn20Minutes = 0.0;
     for (final order in _orderHistory) {
-      if (order.timestamp.isAfter(thirtyMinutesAgo)) {
-        alcoholIn30Minutes += order.pureAlcohol;
+      final isAfter = order.timestamp.isAfter(twentyMinutesAgo);
+      print('DEBUG: order timestamp=${order.timestamp}, isAfter=$isAfter, pureAlcohol=${order.pureAlcohol}');
+      if (isAfter) {
+        alcoholIn20Minutes += order.pureAlcohol;
       }
     }
 
-    // 30分以内に20g以上摂取した場合かつクールダウンが経過していれば通知
-    if (alcoholIn30Minutes >= 20.0) {
+    print('DEBUG: alcoholIn20Minutes=$alcoholIn20Minutes (threshold=60.0)');
+    print('DEBUG: lastPaceNotificationAt=$_lastPaceNotificationAt');
+
+    // 20分以内に60g以上摂取した場合かつクールダウンが経過していれば通知
+    if (alcoholIn20Minutes >= 60.0) {
+      print('DEBUG: Condition met: alcoholIn20Minutes >= 60.0');
       if (_lastPaceNotificationAt == null || now.difference(_lastPaceNotificationAt!) >= _paceCooldown) {
+        print('DEBUG: Cooldown check passed, returning true');
         _lastPaceNotificationAt = now;
-        _showPaceNotification(alcoholIn30Minutes);
+        return true; // ペース通知あり
+      } else {
+        print('DEBUG: Cooldown not elapsed yet');
       }
+    } else {
+      print('DEBUG: Condition not met: alcoholIn20Minutes < 60.0');
     }
-  }
-
-  void _showPaceNotification(double alcoholIn30Min) {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(SnackBar(
-      content: Text('過去30分に${alcoholIn30Min.toStringAsFixed(1)}gを摂取しました。摂取ペースに注意してください。'),
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(label: '閉じる', onPressed: () => messenger.hideCurrentSnackBar()),
-    ));
+    return false; // ペース通知なし
   }
 
   @override
@@ -156,8 +198,6 @@ class _SakeStopAppState extends State<SakeStopApp> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('テーブル: $_tableId'),
-            const SizedBox(height: 8),
-            Text('純アルコール量: ${_totalPureAlcohol.toStringAsFixed(1)}g'),
             const SizedBox(height: 8),
             Text('注文数: ${_orderHistory.length}'),
             const SizedBox(height: 16),
@@ -282,17 +322,6 @@ class MenuScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('テーブル: $tableId'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Center(
-              child: Text(
-                '${totalPureAlcohol.toStringAsFixed(1)}g',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-            ),
-          ),
-        ],
       ),
       body: Column(
         children: [
@@ -316,64 +345,132 @@ class MenuScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // 過去30分合計を表示
+                // 過去20分合計を表示
                 Builder(builder: (context) {
-                  final thirtyAgo = DateTime.now().subtract(const Duration(minutes: 30));
-                  double in30 = 0.0;
+                  final twentyAgo = DateTime.now().subtract(const Duration(minutes: 20));
+                  double in20 = 0.0;
                   for (final o in orderHistory) {
-                    if (o.timestamp.isAfter(thirtyAgo)) in30 += o.pureAlcohol;
+                    if (o.timestamp.isAfter(twentyAgo)) in20 += o.pureAlcohol;
                   }
                   return Text(
-                    '過去30分: ${in30.toStringAsFixed(1)}g',
+                    '過去20分: ${in20.toStringAsFixed(1)}g',
                     style: const TextStyle(fontSize: 14, color: Colors.black54),
                   );
                 }),
               ],
             ),
           ),
-          // メニューリスト
+          // メニューリスト（セクション分け）
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: drinkMenu.length,
-              itemBuilder: (context, index) {
-                final drink = drinkMenu[index];
-                final pureAlcohol = drink.calculatePureAlcohol();
-                return Card(
-                  child: ListTile(
-                    title: Text(drink.name),
-                    subtitle: Text(
-                      '${drink.volume}ml / ${drink.alcoholPercentage}%度 → ${pureAlcohol.toStringAsFixed(1)}g',
+            child: Builder(
+              builder: (context) {
+                // セクション別にアイテムを分類
+                final alcoholicDrinks = drinkMenu.where((d) => d.alcoholPercentage > 0).toList();
+                final nonAlcoholicDrinks = drinkMenu.where((d) => d.alcoholPercentage == 0 && d.volume > 0).toList();
+                final foodItems = drinkMenu.where((d) => d.volume == 0).toList();
+
+                // 全アイテムリスト（セクションヘッダー含む）を作成
+                List<Widget> items = [];
+
+                // アルコールセクション
+                if (alcoholicDrinks.isNotEmpty) {
+                  items.add(
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      child: Text(
+                        '🍺 アルコール',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
                     ),
-                    trailing: ElevatedButton(
-                      onPressed: () => onDrinkSelected(drink),
-                      child: const Text('注文'),
+                  );
+                  for (final drink in alcoholicDrinks) {
+                    final pureAlcohol = drink.calculatePureAlcohol();
+                    items.add(
+                      Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                        child: ListTile(
+                          title: Text(drink.name),
+                          subtitle: Text(
+                            '${drink.volume}ml / ${drink.alcoholPercentage}%度',
+                          ),
+                          trailing: ElevatedButton(
+                            onPressed: () => onDrinkSelected(drink),
+                            child: const Text('注文'),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+
+                // ノンアルコールセクション
+                if (nonAlcoholicDrinks.isNotEmpty) {
+                  items.add(
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      child: Text(
+                        '🥤 ノンアルコール',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
                     ),
-                  ),
+                  );
+                  for (final drink in nonAlcoholicDrinks) {
+                    items.add(
+                      Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                        child: ListTile(
+                          title: Text(drink.name),
+                          subtitle: const Text('ノンアルコール'),
+                          trailing: ElevatedButton(
+                            onPressed: () => onDrinkSelected(drink),
+                            child: const Text('注文'),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+
+                // フードセクション
+                if (foodItems.isNotEmpty) {
+                  items.add(
+                    Padding(
+                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      child: Text(
+                        '🍽️ フード',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                  );
+                  for (final drink in foodItems) {
+                    items.add(
+                      Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                        child: ListTile(
+                          title: Text(drink.name),
+                          subtitle: const Text('フード'),
+                          trailing: ElevatedButton(
+                            onPressed: () => onDrinkSelected(drink),
+                            child: const Text('注文'),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                }
+
+                return ListView(
+                  children: items,
                 );
               },
             ),
           ),
-          // 注文履歴とボタン
+          // 会計・終了ボタン
           Container(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (orderHistory.isNotEmpty)
-                  SizedBox(
-                    height: 100,
-                    child: ListView.builder(
-                      itemCount: orderHistory.length,
-                      itemBuilder: (context, index) {
-                        final order = orderHistory[index];
-                        return Text(
-                          '${order.drinkName} (+${order.pureAlcohol.toStringAsFixed(1)}g)',
-                          style: const TextStyle(fontSize: 12),
-                        );
-                      },
-                    ),
-                  ),
                 const SizedBox(height: 12),
                 ElevatedButton.icon(
                   onPressed: onCheckout,
