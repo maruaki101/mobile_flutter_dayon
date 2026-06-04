@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'package:firebase_database/firebase_database.dart';
+import 'package:uuid/uuid.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const MyApp());
 }
 
@@ -35,9 +43,7 @@ class Drink {
 
   // 純アルコール量を計算 (g)
   double calculatePureAlcohol() {
-    final result = (volume * alcoholPercentage * 0.8) / 100;
-    print('DEBUG: calculatePureAlcohol: ($volume * $alcoholPercentage * 0.8) / 100 = $result');
-    return result;
+    return (volume * alcoholPercentage * 0.8) / 100;
   }
 }
 
@@ -71,64 +77,122 @@ class SakeStopApp extends StatefulWidget {
 
 class _SakeStopAppState extends State<SakeStopApp> {
   String? _tableId;
+  String? _sessionId;
+  String? _memberId;
+  String? _nickname;
   double _totalPureAlcohol = 0.0;
   List<OrderRecord> _orderHistory = [];
   DateTime? _lastPaceNotificationAt;
   final Duration _paceCooldown = const Duration(minutes: 20);
 
-  void _startSession(String tableId) {
-    setState(() {
-      _tableId = tableId;
-      _totalPureAlcohol = 0.0;
-      _orderHistory = [];
-    });
+  Future<void> _startSession(String tableId, String nickname) async {
+    final memberId = const Uuid().v4();
+    final sessionId = const Uuid().v4();
+
+    try {
+      // Firebaseにメンバー登録
+      await FirebaseDatabase.instance
+          .ref('tables/$tableId/sessions/$sessionId/members/$memberId')
+          .set({
+        'nickname': nickname.isEmpty ? null : nickname,
+        'created_at': ServerValue.timestamp,
+      });
+
+      setState(() {
+        _tableId = tableId;
+        _sessionId = sessionId;
+        _memberId = memberId;
+        _nickname = nickname.isEmpty ? 'ゲスト' : nickname;
+        _totalPureAlcohol = 0.0;
+        _orderHistory = [];
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $e')),
+        );
+      }
+    }
   }
 
-  void _addDrink(Drink drink) {
+  Future<void> _addDrink(Drink drink) async {
     final pureAlcohol = drink.calculatePureAlcohol();
     final now = DateTime.now();
-    
-    print('DEBUG: _addDrink called: name=${drink.name}, volume=${drink.volume}ml, alcohol%=${drink.alcoholPercentage}%, pureAlcohol=$pureAlcohol g');
-    
-    setState(() {
-      _totalPureAlcohol += pureAlcohol;
-      _orderHistory.add(OrderRecord(
-        drinkName: drink.name,
-        pureAlcohol: pureAlcohol,
-        timestamp: now,
-      ));
-    });
+    final orderId = const Uuid().v4();
 
-    // ペース通知をチェック
-    final isPaceAlert = _checkPaceNotification();
+    try {
+      // Firebaseに注文を保存
+      await FirebaseDatabase.instance
+          .ref('tables/$_tableId/sessions/$_sessionId/members/$_memberId/orders/$orderId')
+          .set({
+        'drink_name': drink.name,
+        'pure_alcohol': pureAlcohol,
+        'timestamp': now.millisecondsSinceEpoch,
+      });
 
-    // 過去20分の合計を取得（ペース通知時のメッセージ用）
-    final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
-    double alcoholIn20Minutes = 0.0;
-    for (final order in _orderHistory) {
-      if (order.timestamp.isAfter(twentyMinutesAgo)) {
-        alcoholIn20Minutes += order.pureAlcohol;
+      setState(() {
+        _totalPureAlcohol += pureAlcohol;
+        _orderHistory.add(OrderRecord(
+          drinkName: drink.name,
+          pureAlcohol: pureAlcohol,
+          timestamp: now,
+        ));
+      });
+
+      final isPaceAlert = _checkPaceNotification();
+
+      final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
+      double alcoholIn20Minutes = 0.0;
+      for (final order in _orderHistory) {
+        if (order.timestamp.isAfter(twentyMinutesAgo)) {
+          alcoholIn20Minutes += order.pureAlcohol;
+        }
+      }
+
+      final message = isPaceAlert
+          ? '${drink.name} を注文しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
+          : '${drink.name} を注文しました';
+
+      if (mounted) {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: '閉じる',
+            onPressed: () => messenger.hideCurrentSnackBar(),
+          ),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('エラー: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _resetSession() async {
+    if (_tableId != null && _sessionId != null) {
+      try {
+        await FirebaseDatabase.instance
+            .ref('tables/$_tableId/sessions/$_sessionId')
+            .update({'closed_at': ServerValue.timestamp});
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('エラー: $e')),
+          );
+        }
       }
     }
 
-    final message = isPaceAlert
-        ? '${drink.name} を注文しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
-        : '${drink.name} を注文しました';
-
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(SnackBar(
-      content: Text(message),
-      duration: const Duration(seconds: 4),
-      action: SnackBarAction(
-        label: '閉じる',
-        onPressed: () => messenger.hideCurrentSnackBar(),
-      ),
-    ));
-  }
-
-  void _resetSession() {
     setState(() {
       _tableId = null;
+      _sessionId = null;
+      _memberId = null;
+      _nickname = null;
       _totalPureAlcohol = 0.0;
       _orderHistory = [];
     });
@@ -139,34 +203,20 @@ class _SakeStopAppState extends State<SakeStopApp> {
     final now = DateTime.now();
     final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
 
-    print('DEBUG: now=$now, twentyMinutesAgo=$twentyMinutesAgo');
-    print('DEBUG: orderHistory length=${_orderHistory.length}');
-
     // 過去20分以内の注文を集計
     double alcoholIn20Minutes = 0.0;
     for (final order in _orderHistory) {
-      final isAfter = order.timestamp.isAfter(twentyMinutesAgo);
-      print('DEBUG: order timestamp=${order.timestamp}, isAfter=$isAfter, pureAlcohol=${order.pureAlcohol}');
-      if (isAfter) {
+      if (order.timestamp.isAfter(twentyMinutesAgo)) {
         alcoholIn20Minutes += order.pureAlcohol;
       }
     }
 
-    print('DEBUG: alcoholIn20Minutes=$alcoholIn20Minutes (threshold=60.0)');
-    print('DEBUG: lastPaceNotificationAt=$_lastPaceNotificationAt');
-
     // 20分以内に60g以上摂取した場合かつクールダウンが経過していれば通知
     if (alcoholIn20Minutes >= 60.0) {
-      print('DEBUG: Condition met: alcoholIn20Minutes >= 60.0');
       if (_lastPaceNotificationAt == null || now.difference(_lastPaceNotificationAt!) >= _paceCooldown) {
-        print('DEBUG: Cooldown check passed, returning true');
         _lastPaceNotificationAt = now;
         return true; // ペース通知あり
-      } else {
-        print('DEBUG: Cooldown not elapsed yet');
       }
-    } else {
-      print('DEBUG: Condition not met: alcoholIn20Minutes < 60.0');
     }
     return false; // ペース通知なし
   }
@@ -178,6 +228,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     } else {
       return MenuScreen(
         tableId: _tableId!,
+        nickname: _nickname ?? 'ゲスト',
         totalPureAlcohol: _totalPureAlcohol,
         onDrinkSelected: _addDrink,
         onCheckout: () {
@@ -222,10 +273,10 @@ class _SakeStopAppState extends State<SakeStopApp> {
   }
 }
 
-// ========== QRスキャン画面 ==========
+// ========== QRスキャン・ニックネーム入力画面 ==========
 
 class QRScanScreen extends StatefulWidget {
-  final Function(String) onScanned;
+  final Function(String, String) onScanned;
 
   const QRScanScreen({super.key, required this.onScanned});
 
@@ -235,65 +286,140 @@ class QRScanScreen extends StatefulWidget {
 
 class _QRScanScreenState extends State<QRScanScreen> {
   final TextEditingController _tableIdController = TextEditingController();
+  final TextEditingController _nicknameController = TextEditingController();
+  String? _scannedTableId;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('QRスキャン'),
+        title: Text(_scannedTableId == null ? 'QRスキャン' : 'ニックネーム入力'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.qr_code_2,
-                size: 100,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              const SizedBox(height: 32),
-              const Text(
-                'テーブルIDをスキャンしてください',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 32),
-              // 最小構成のためテキスト入力で代替
-              TextField(
-                controller: _tableIdController,
-                decoration: InputDecoration(
-                  hintText: 'テーブルID（例：T01）',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  prefixIcon: const Icon(Icons.table_restaurant),
-                ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () {
-                  if (_tableIdController.text.isNotEmpty) {
-                    widget.onScanned(_tableIdController.text);
-                  }
-                },
-                icon: const Icon(Icons.arrow_forward),
-                label: const Text('開始'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                ),
-              ),
-            ],
-          ),
+          child: _scannedTableId == null
+              ? _buildQRScanScreen(context)
+              : _buildNicknameScreen(context),
         ),
       ),
+    );
+  }
+
+  Widget _buildQRScanScreen(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.qr_code_2,
+          size: 100,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(height: 32),
+        const Text(
+          'テーブルIDをスキャンしてください',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 32),
+        // 最小構成のためテキスト入力で代替
+        TextField(
+          controller: _tableIdController,
+          decoration: InputDecoration(
+            hintText: 'テーブルID（例：T01）',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            prefixIcon: const Icon(Icons.table_restaurant),
+          ),
+        ),
+        const SizedBox(height: 24),
+        ElevatedButton.icon(
+          onPressed: () {
+            if (_tableIdController.text.isNotEmpty) {
+              setState(() {
+                _scannedTableId = _tableIdController.text;
+              });
+            }
+          },
+          icon: const Icon(Icons.arrow_forward),
+          label: const Text('次へ'),
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNicknameScreen(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(
+          Icons.person,
+          size: 100,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(height: 32),
+        const Text(
+          'ニックネームを入力してください',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          '（未入力の場合は「ゲスト」となります）',
+          style: TextStyle(fontSize: 14, color: Colors.grey),
+        ),
+        const SizedBox(height: 32),
+        TextField(
+          controller: _nicknameController,
+          decoration: InputDecoration(
+            hintText: 'ニックネーム',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            prefixIcon: const Icon(Icons.edit),
+          ),
+        ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _scannedTableId = null;
+                  _nicknameController.clear();
+                });
+              },
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('戻る'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              ),
+            ),
+            const SizedBox(width: 16),
+            ElevatedButton.icon(
+              onPressed: () {
+                widget.onScanned(_scannedTableId!, _nicknameController.text);
+              },
+              icon: const Icon(Icons.arrow_forward),
+              label: const Text('開始'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
   @override
   void dispose() {
     _tableIdController.dispose();
+    _nicknameController.dispose();
     super.dispose();
   }
 }
@@ -302,14 +428,16 @@ class _QRScanScreenState extends State<QRScanScreen> {
 
 class MenuScreen extends StatelessWidget {
   final String tableId;
+  final String nickname;
   final double totalPureAlcohol;
-  final Function(Drink) onDrinkSelected;
+  final Future<void> Function(Drink) onDrinkSelected;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
 
   const MenuScreen({
     super.key,
     required this.tableId,
+    required this.nickname,
     required this.totalPureAlcohol,
     required this.onDrinkSelected,
     required this.onCheckout,
@@ -320,7 +448,7 @@ class MenuScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('テーブル: $tableId'),
+        title: Text('$nickname さん @テーブル: $tableId'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Column(
@@ -394,7 +522,7 @@ class MenuScreen extends StatelessWidget {
                             '${drink.volume}ml / ${drink.alcoholPercentage}%度',
                           ),
                           trailing: ElevatedButton(
-                            onPressed: () => onDrinkSelected(drink),
+                            onPressed: () async => await onDrinkSelected(drink),
                             child: const Text('注文'),
                           ),
                         ),
@@ -422,7 +550,7 @@ class MenuScreen extends StatelessWidget {
                           title: Text(drink.name),
                           subtitle: const Text('ノンアルコール'),
                           trailing: ElevatedButton(
-                            onPressed: () => onDrinkSelected(drink),
+                            onPressed: () async => await onDrinkSelected(drink),
                             child: const Text('注文'),
                           ),
                         ),
@@ -450,7 +578,7 @@ class MenuScreen extends StatelessWidget {
                           title: Text(drink.name),
                           subtitle: const Text('フード'),
                           trailing: ElevatedButton(
-                            onPressed: () => onDrinkSelected(drink),
+                            onPressed: () async => await onDrinkSelected(drink),
                             child: const Text('注文'),
                           ),
                         ),
