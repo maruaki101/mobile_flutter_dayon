@@ -99,6 +99,11 @@ class _SakeStopAppState extends State<SakeStopApp> {
   DateTime? _lastPaceNotificationAt;
   final Duration _paceCooldown = const Duration(minutes: 20);
 
+  double get _cartTotalAlcohol => _cartItems.fold(
+        0.0,
+        (sum, item) => sum + item.totalPureAlcohol,
+      );
+
   Future<void> _startSession(String tableId, String nickname) async {
     final memberId = const Uuid().v4();
     final sessionId = const Uuid().v4();
@@ -331,6 +336,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
         onAddToCart: _addToCart,
         onCartTapped: () => setState(() => _showCart = true),
         cartItemCount: _cartItems.fold(0, (sum, item) => sum + item.quantity),
+        cartTotalAlcohol: _cartTotalAlcohol,
         onCheckout: _showCheckoutDialog,
         orderHistory: _orderHistory,
       );
@@ -531,6 +537,7 @@ class MenuScreen extends StatelessWidget {
   final void Function(Drink) onAddToCart;
   final VoidCallback onCartTapped;
   final int cartItemCount;
+  final double cartTotalAlcohol;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
 
@@ -542,6 +549,7 @@ class MenuScreen extends StatelessWidget {
     required this.onAddToCart,
     required this.onCartTapped,
     required this.cartItemCount,
+    required this.cartTotalAlcohol,
     required this.onCheckout,
     required this.orderHistory,
   });
@@ -579,6 +587,18 @@ class MenuScreen extends StatelessWidget {
           ),
         ],
       ),
+      floatingActionButton: cartItemCount > 0
+          ? FloatingActionButton.extended(
+              onPressed: onCartTapped,
+              icon: const Icon(Icons.shopping_cart),
+              label: Text(
+                cartTotalAlcohol > 0
+                    ? '注文確認へ（${cartTotalAlcohol.toStringAsFixed(1)}g）'
+                    : '注文確認へ',
+              ),
+              backgroundColor: Colors.orange,
+            )
+          : null,
       body: Column(
         children: [
           // アルコール摂取量表示（数値のみ）
