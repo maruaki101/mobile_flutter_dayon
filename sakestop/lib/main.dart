@@ -512,7 +512,6 @@ class MenuScreen extends StatelessWidget {
                     ),
                   );
                   for (final drink in alcoholicDrinks) {
-                    final pureAlcohol = drink.calculatePureAlcohol();
                     items.add(
                       Card(
                         margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
