@@ -47,6 +47,18 @@ class Drink {
   }
 }
 
+class CartItem {
+  final Drink drink;
+  int quantity;
+
+  CartItem({
+    required this.drink,
+    this.quantity = 1,
+  });
+
+  double get totalPureAlcohol => drink.calculatePureAlcohol() * quantity;
+}
+
 // 飲料マスターデータ（ハードコード）
 final List<Drink> drinkMenu = [
   // アルコール
@@ -82,6 +94,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
   String? _nickname;
   double _totalPureAlcohol = 0.0;
   List<OrderRecord> _orderHistory = [];
+  List<CartItem> _cartItems = [];
+  bool _showCart = false;
   DateTime? _lastPaceNotificationAt;
   final Duration _paceCooldown = const Duration(minutes: 20);
 
@@ -105,6 +119,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
         _nickname = nickname.isEmpty ? 'ゲスト' : nickname;
         _totalPureAlcohol = 0.0;
         _orderHistory = [];
+        _cartItems = [];
+        _showCart = false;
       });
     } catch (e) {
       if (mounted) {
@@ -115,7 +131,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     }
   }
 
-  Future<void> _addDrink(Drink drink) async {
+  Future<void> _addDrink(Drink drink, {bool showSnackBar = true}) async {
     final pureAlcohol = drink.calculatePureAlcohol();
     final now = DateTime.now();
     final orderId = const Uuid().v4();
@@ -139,30 +155,24 @@ class _SakeStopAppState extends State<SakeStopApp> {
         ));
       });
 
-      final isPaceAlert = _checkPaceNotification();
+      if (showSnackBar) {
+        final isPaceAlert = _checkPaceNotification();
+        final alcoholIn20Minutes = _calculateAlcoholInLast20Minutes();
+        final message = isPaceAlert
+            ? '${drink.name} を注文しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
+            : '${drink.name} を注文しました';
 
-      final twentyMinutesAgo = now.subtract(const Duration(minutes: 20));
-      double alcoholIn20Minutes = 0.0;
-      for (final order in _orderHistory) {
-        if (order.timestamp.isAfter(twentyMinutesAgo)) {
-          alcoholIn20Minutes += order.pureAlcohol;
+        if (mounted) {
+          final messenger = ScaffoldMessenger.of(context);
+          messenger.showSnackBar(SnackBar(
+            content: Text(message),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: '閉じる',
+              onPressed: () => messenger.hideCurrentSnackBar(),
+            ),
+          ));
         }
-      }
-
-      final message = isPaceAlert
-          ? '${drink.name} を注文しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
-          : '${drink.name} を注文しました';
-
-      if (mounted) {
-        final messenger = ScaffoldMessenger.of(context);
-        messenger.showSnackBar(SnackBar(
-          content: Text(message),
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: '閉じる',
-            onPressed: () => messenger.hideCurrentSnackBar(),
-          ),
-        ));
       }
     } catch (e) {
       if (mounted) {
@@ -195,6 +205,85 @@ class _SakeStopAppState extends State<SakeStopApp> {
       _nickname = null;
       _totalPureAlcohol = 0.0;
       _orderHistory = [];
+      _cartItems = [];
+      _showCart = false;
+    });
+  }
+
+  double _calculateAlcoholInLast20Minutes() {
+    final twentyMinutesAgo = DateTime.now().subtract(const Duration(minutes: 20));
+    double alcoholIn20Minutes = 0.0;
+    for (final order in _orderHistory) {
+      if (order.timestamp.isAfter(twentyMinutesAgo)) {
+        alcoholIn20Minutes += order.pureAlcohol;
+      }
+    }
+    return alcoholIn20Minutes;
+  }
+
+  void _addToCart(Drink drink) {
+    setState(() {
+      for (final item in _cartItems) {
+        if (item.drink.name == drink.name) {
+          item.quantity++;
+          return;
+        }
+      }
+      _cartItems.add(CartItem(drink: drink));
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${drink.name} をカートに追加しました'),
+      duration: const Duration(seconds: 2),
+    ));
+  }
+
+  void _updateCartQuantity(CartItem item, int delta) {
+    setState(() {
+      item.quantity += delta;
+      if (item.quantity <= 0) {
+        _cartItems.remove(item);
+      }
+    });
+  }
+
+  void _removeFromCart(CartItem item) {
+    setState(() {
+      _cartItems.remove(item);
+    });
+  }
+
+  Future<void> _confirmOrder() async {
+    if (_cartItems.isEmpty) return;
+
+    final orderItems = List<CartItem>.from(_cartItems);
+    for (final item in orderItems) {
+      for (int i = 0; i < item.quantity; i++) {
+        await _addDrink(item.drink, showSnackBar: false);
+      }
+    }
+
+    final isPaceAlert = _checkPaceNotification();
+    final alcoholIn20Minutes = _calculateAlcoholInLast20Minutes();
+    final message = isPaceAlert
+        ? '注文が確定しました。過去20分のペースが速くなっています（${alcoholIn20Minutes.toStringAsFixed(1)}g）'
+        : '注文が確定しました';
+
+    if (mounted) {
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: '閉じる',
+          onPressed: () => messenger.hideCurrentSnackBar(),
+        ),
+      ));
+    }
+
+    setState(() {
+      _cartItems = [];
+      _showCart = false;
     });
   }
 
@@ -213,7 +302,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
 
     // 20分以内に60g以上摂取した場合かつクールダウンが経過していれば通知
     if (alcoholIn20Minutes >= 60.0) {
-      if (_lastPaceNotificationAt == null || now.difference(_lastPaceNotificationAt!) >= _paceCooldown) {
+      if (_lastPaceNotificationAt == null ||
+          now.difference(_lastPaceNotificationAt!) >= _paceCooldown) {
         _lastPaceNotificationAt = now;
         return true; // ペース通知あり
       }
@@ -225,15 +315,23 @@ class _SakeStopAppState extends State<SakeStopApp> {
   Widget build(BuildContext context) {
     if (_tableId == null) {
       return QRScanScreen(onScanned: _startSession);
+    } else if (_showCart) {
+      return CartScreen(
+        cartItems: _cartItems,
+        onConfirmOrder: _confirmOrder,
+        onBack: () => setState(() => _showCart = false),
+        onQuantityChanged: _updateCartQuantity,
+        onRemove: _removeFromCart,
+      );
     } else {
       return MenuScreen(
         tableId: _tableId!,
         nickname: _nickname ?? 'ゲスト',
         totalPureAlcohol: _totalPureAlcohol,
-        onDrinkSelected: _addDrink,
-        onCheckout: () {
-          _showCheckoutDialog();
-        },
+        onAddToCart: _addToCart,
+        onCartTapped: () => setState(() => _showCart = true),
+        cartItemCount: _cartItems.fold(0, (sum, item) => sum + item.quantity),
+        onCheckout: _showCheckoutDialog,
         orderHistory: _orderHistory,
       );
     }
@@ -430,7 +528,9 @@ class MenuScreen extends StatelessWidget {
   final String tableId;
   final String nickname;
   final double totalPureAlcohol;
-  final Future<void> Function(Drink) onDrinkSelected;
+  final void Function(Drink) onAddToCart;
+  final VoidCallback onCartTapped;
+  final int cartItemCount;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
 
@@ -439,7 +539,9 @@ class MenuScreen extends StatelessWidget {
     required this.tableId,
     required this.nickname,
     required this.totalPureAlcohol,
-    required this.onDrinkSelected,
+    required this.onAddToCart,
+    required this.onCartTapped,
+    required this.cartItemCount,
     required this.onCheckout,
     required this.orderHistory,
   });
@@ -450,6 +552,32 @@ class MenuScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('$nickname さん @テーブル: $tableId'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.shopping_cart),
+                onPressed: onCartTapped,
+              ),
+              if (cartItemCount > 0)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$cartItemCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -494,7 +622,9 @@ class MenuScreen extends StatelessWidget {
               builder: (context) {
                 // セクション別にアイテムを分類
                 final alcoholicDrinks = drinkMenu.where((d) => d.alcoholPercentage > 0).toList();
-                final nonAlcoholicDrinks = drinkMenu.where((d) => d.alcoholPercentage == 0 && d.volume > 0).toList();
+                final nonAlcoholicDrinks = drinkMenu
+                    .where((d) => d.alcoholPercentage == 0 && d.volume > 0)
+                    .toList();
                 final foodItems = drinkMenu.where((d) => d.volume == 0).toList();
 
                 // 全アイテムリスト（セクションヘッダー含む）を作成
@@ -504,7 +634,12 @@ class MenuScreen extends StatelessWidget {
                 if (alcoholicDrinks.isNotEmpty) {
                   items.add(
                     Padding(
-                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      padding: const EdgeInsets.only(
+                        top: 16.0,
+                        bottom: 8.0,
+                        left: 16.0,
+                        right: 16.0,
+                      ),
                       child: Text(
                         '🍺 アルコール',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -521,8 +656,8 @@ class MenuScreen extends StatelessWidget {
                             '${drink.volume}ml / ${drink.alcoholPercentage}%度',
                           ),
                           trailing: ElevatedButton(
-                            onPressed: () async => await onDrinkSelected(drink),
-                            child: const Text('注文'),
+                            onPressed: () => onAddToCart(drink),
+                            child: const Text('追加'),
                           ),
                         ),
                       ),
@@ -534,7 +669,12 @@ class MenuScreen extends StatelessWidget {
                 if (nonAlcoholicDrinks.isNotEmpty) {
                   items.add(
                     Padding(
-                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      padding: const EdgeInsets.only(
+                        top: 16.0,
+                        bottom: 8.0,
+                        left: 16.0,
+                        right: 16.0,
+                      ),
                       child: Text(
                         '🥤 ノンアルコール',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -549,8 +689,8 @@ class MenuScreen extends StatelessWidget {
                           title: Text(drink.name),
                           subtitle: const Text('ノンアルコール'),
                           trailing: ElevatedButton(
-                            onPressed: () async => await onDrinkSelected(drink),
-                            child: const Text('注文'),
+                            onPressed: () => onAddToCart(drink),
+                            child: const Text('追加'),
                           ),
                         ),
                       ),
@@ -562,7 +702,12 @@ class MenuScreen extends StatelessWidget {
                 if (foodItems.isNotEmpty) {
                   items.add(
                     Padding(
-                      padding: const EdgeInsets.only(top: 16.0, bottom: 8.0, left: 16.0, right: 16.0),
+                      padding: const EdgeInsets.only(
+                        top: 16.0,
+                        bottom: 8.0,
+                        left: 16.0,
+                        right: 16.0,
+                      ),
                       child: Text(
                         '🍽️ フード',
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -577,8 +722,8 @@ class MenuScreen extends StatelessWidget {
                           title: Text(drink.name),
                           subtitle: const Text('フード'),
                           trailing: ElevatedButton(
-                            onPressed: () async => await onDrinkSelected(drink),
-                            child: const Text('注文'),
+                            onPressed: () => onAddToCart(drink),
+                            child: const Text('追加'),
                           ),
                         ),
                       ),
@@ -614,6 +759,177 @@ class MenuScreen extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class CartScreen extends StatelessWidget {
+  final List<CartItem> cartItems;
+  final Future<void> Function() onConfirmOrder;
+  final VoidCallback onBack;
+  final void Function(CartItem, int) onQuantityChanged;
+  final void Function(CartItem) onRemove;
+
+  const CartScreen({
+    super.key,
+    required this.cartItems,
+    required this.onConfirmOrder,
+    required this.onBack,
+    required this.onQuantityChanged,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalPureAlcohol = cartItems.fold<double>(
+      0,
+      (sum, item) => sum + item.totalPureAlcohol,
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('カート確認'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: onBack,
+        ),
+      ),
+      body: cartItems.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.shopping_cart_outlined, size: 80, color: Colors.grey),
+                  const SizedBox(height: 16),
+                  const Text('カートに商品がありません'),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: onBack,
+                    child: const Text('メニューに戻る'),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: cartItems.length,
+                    itemBuilder: (context, index) {
+                      final item = cartItems[index];
+                      final pureAlcohol = item.totalPureAlcohol;
+                      final subtitle = pureAlcohol > 0
+                          ? '${item.drink.volume.toStringAsFixed(0)}ml / '
+                              '${item.drink.alcoholPercentage.toStringAsFixed(0)}%度 / '
+                              '純アルコール ${pureAlcohol.toStringAsFixed(1)}g'
+                          : item.drink.volume > 0
+                              ? 'ノンアルコール'
+                              : 'フード';
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.drink.name,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(subtitle),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline),
+                                    onPressed: () => onRemove(item),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.remove_circle_outline),
+                                    onPressed: () =>
+                                        onQuantityChanged(item, -1),
+                                  ),
+                                  SizedBox(
+                                    width: 40,
+                                    child: Text(
+                                      '${item.quantity}',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.add_circle_outline),
+                                    onPressed: () => onQuantityChanged(item, 1),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[50],
+                    border: Border(top: BorderSide(color: Colors.grey.shade300)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'カート合計: 純アルコール ${totalPureAlcohol.toStringAsFixed(1)}g',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: onConfirmOrder,
+                        icon: const Icon(Icons.check),
+                        label: const Text('注文確定'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: onBack,
+                        icon: const Icon(Icons.restaurant_menu),
+                        label: const Text('メニューに戻る'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
     );
   }
 }
