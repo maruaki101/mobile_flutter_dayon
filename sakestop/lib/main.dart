@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -96,6 +98,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
   List<OrderRecord> _orderHistory = [];
   List<CartItem> _cartItems = [];
   bool _showCart = false;
+  bool _showOrderHistory = false;
+  StreamSubscription<DatabaseEvent>? _ordersSubscription;
   DateTime? _lastPaceNotificationAt;
   final Duration _paceCooldown = const Duration(minutes: 20);
 
@@ -126,7 +130,9 @@ class _SakeStopAppState extends State<SakeStopApp> {
         _orderHistory = [];
         _cartItems = [];
         _showCart = false;
+        _showOrderHistory = false;
       });
+      _listenToOrderHistory(tableId, sessionId, memberId);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -151,13 +157,21 @@ class _SakeStopAppState extends State<SakeStopApp> {
         'timestamp': now.millisecondsSinceEpoch,
       });
 
+      final order = OrderRecord(
+        id: orderId,
+        drinkName: drink.name,
+        pureAlcohol: pureAlcohol,
+        timestamp: now,
+      );
       setState(() {
-        _totalPureAlcohol += pureAlcohol;
-        _orderHistory.add(OrderRecord(
-          drinkName: drink.name,
-          pureAlcohol: pureAlcohol,
-          timestamp: now,
-        ));
+        _orderHistory = [
+          ..._orderHistory.where((record) => record.id != orderId),
+          order,
+        ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        _totalPureAlcohol = _orderHistory.fold<double>(
+          0,
+          (sum, order) => sum + order.pureAlcohol,
+        );
       });
 
       if (showSnackBar) {
@@ -189,6 +203,9 @@ class _SakeStopAppState extends State<SakeStopApp> {
   }
 
   Future<void> _resetSession() async {
+    await _ordersSubscription?.cancel();
+    _ordersSubscription = null;
+
     if (_tableId != null && _sessionId != null) {
       try {
         await FirebaseDatabase.instance
@@ -212,7 +229,71 @@ class _SakeStopAppState extends State<SakeStopApp> {
       _orderHistory = [];
       _cartItems = [];
       _showCart = false;
+      _showOrderHistory = false;
     });
+  }
+
+  void _listenToOrderHistory(String tableId, String sessionId, String memberId) {
+    unawaited(_ordersSubscription?.cancel());
+    _ordersSubscription = FirebaseDatabase.instance
+        .ref('tables/$tableId/sessions/$sessionId/members/$memberId/orders')
+        .orderByChild('timestamp')
+        .onValue
+        .listen((event) {
+      final value = event.snapshot.value;
+      final records = <OrderRecord>[];
+
+      if (value is Map) {
+        for (final entry in value.entries) {
+          final rawOrder = entry.value;
+          if (rawOrder is! Map) continue;
+
+          final drinkName = rawOrder['drink_name']?.toString();
+          final pureAlcohol = _toDouble(rawOrder['pure_alcohol']);
+          final timestamp = _toInt(rawOrder['timestamp']);
+
+          if (drinkName == null || pureAlcohol == null || timestamp == null) {
+            continue;
+          }
+
+          records.add(OrderRecord(
+            id: entry.key.toString(),
+            drinkName: drinkName,
+            pureAlcohol: pureAlcohol,
+            timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+          ));
+        }
+      }
+
+      records.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+
+      if (!mounted) return;
+      setState(() {
+        _orderHistory = records;
+        _totalPureAlcohol = records.fold<double>(
+          0,
+          (sum, order) => sum + order.pureAlcohol,
+        );
+      });
+    }, onError: (Object error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    });
+  }
+
+  double? _toDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
+  int? _toInt(Object? value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
   }
 
   double _calculateAlcoholInLast20Minutes() {
@@ -328,6 +409,11 @@ class _SakeStopAppState extends State<SakeStopApp> {
         onQuantityChanged: _updateCartQuantity,
         onRemove: _removeFromCart,
       );
+    } else if (_showOrderHistory) {
+      return OrderHistoryScreen(
+        orderHistory: _orderHistory,
+        onBack: () => setState(() => _showOrderHistory = false),
+      );
     } else {
       return MenuScreen(
         tableId: _tableId!,
@@ -339,8 +425,15 @@ class _SakeStopAppState extends State<SakeStopApp> {
         cartTotalAlcohol: _cartTotalAlcohol,
         onCheckout: _showCheckoutDialog,
         orderHistory: _orderHistory,
+        onOrderHistoryTapped: () => setState(() => _showOrderHistory = true),
       );
     }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_ordersSubscription?.cancel());
+    super.dispose();
   }
 
   void _showCheckoutDialog() {
@@ -540,6 +633,7 @@ class MenuScreen extends StatelessWidget {
   final double cartTotalAlcohol;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
+  final VoidCallback onOrderHistoryTapped;
 
   const MenuScreen({
     super.key,
@@ -552,6 +646,7 @@ class MenuScreen extends StatelessWidget {
     required this.cartTotalAlcohol,
     required this.onCheckout,
     required this.orderHistory,
+    required this.onOrderHistoryTapped,
   });
 
   @override
@@ -561,6 +656,10 @@ class MenuScreen extends StatelessWidget {
         title: Text('$nickname さん @テーブル: $tableId'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            onPressed: onOrderHistoryTapped,
+          ),
           Stack(
             children: [
               IconButton(
@@ -783,6 +882,97 @@ class MenuScreen extends StatelessWidget {
   }
 }
 
+class OrderHistoryScreen extends StatelessWidget {
+  final List<OrderRecord> orderHistory;
+  final VoidCallback onBack;
+
+  const OrderHistoryScreen({
+    super.key,
+    required this.orderHistory,
+    required this.onBack,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final totalPureAlcohol = orderHistory.fold<double>(
+      0,
+      (sum, order) => sum + order.pureAlcohol,
+    );
+    final latestFirst = orderHistory.reversed.toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('\u6ce8\u6587\u5c65\u6b74'),
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: onBack,
+        ),
+      ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            color: Colors.blue[50],
+            child: Column(
+              children: [
+                Text(
+                  '\u6ce8\u6587\u6570: ${orderHistory.length}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '\u7d14\u30a2\u30eb\u30b3\u30fc\u30eb\u5408\u8a08 ${totalPureAlcohol.toStringAsFixed(1)}g',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 20,
+                    color: Colors.blue,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: latestFirst.isEmpty
+                ? const Center(
+                    child: Text('\u307e\u3060\u6ce8\u6587\u5c65\u6b74\u304c\u3042\u308a\u307e\u305b\u3093'),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: latestFirst.length,
+                    itemBuilder: (context, index) {
+                      final order = latestFirst[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: ListTile(
+                          leading: const Icon(Icons.receipt_long),
+                          title: Text(order.drinkName),
+                          subtitle: Text(_formatTimestamp(order.timestamp)),
+                          trailing: Text(
+                            order.pureAlcohol > 0
+                                ? '${order.pureAlcohol.toStringAsFixed(1)}g'
+                                : '-',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatTimestamp(DateTime timestamp) {
+    return '${_twoDigits(timestamp.month)}/${_twoDigits(timestamp.day)} '
+        '${_twoDigits(timestamp.hour)}:${_twoDigits(timestamp.minute)}';
+  }
+
+  String _twoDigits(int value) => value.toString().padLeft(2, '0');
+}
+
 class CartScreen extends StatelessWidget {
   final List<CartItem> cartItems;
   final Future<void> Function() onConfirmOrder;
@@ -957,11 +1147,13 @@ class CartScreen extends StatelessWidget {
 // ========== 注文記録 ==========
 
 class OrderRecord {
+  final String id;
   final String drinkName;
   final double pureAlcohol;
   final DateTime timestamp;
 
   OrderRecord({
+    required this.id,
     required this.drinkName,
     required this.pureAlcohol,
     required this.timestamp,
