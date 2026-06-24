@@ -1,11 +1,11 @@
 {
-    "name": "sakestop",
-    "short_name": "sakestop",
+    "name": "Sake Stop",
+    "short_name": "Sake Stop",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "注文と純アルコール摂取量を確認できる飲酒ペース管理アプリ",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
