@@ -23,6 +23,56 @@ void main() async {
   }
 }
 
+ThemeData _buildAppTheme() {
+  final scheme = ColorScheme.fromSeed(
+    seedColor: const Color(0xFF9A3412),
+    surface: const Color(0xFFFFFBF7),
+    brightness: Brightness.light,
+  );
+  final base = ThemeData(colorScheme: scheme, useMaterial3: true);
+  return base.copyWith(
+    scaffoldBackgroundColor: scheme.surface,
+    cardTheme: CardThemeData(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        minimumSize: const Size(0, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    ),
+    textTheme: base.textTheme.copyWith(
+      titleLarge: base.textTheme.titleLarge?.copyWith(
+        fontWeight: FontWeight.w700,
+      ),
+      titleMedium: base.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+      labelLarge: base.textTheme.labelLarge?.copyWith(
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
+}
+
 class StartupErrorApp extends StatelessWidget {
   const StartupErrorApp({super.key});
 
@@ -31,22 +81,27 @@ class StartupErrorApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Sake Stop',
+      theme: _buildAppTheme(),
       home: Scaffold(
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.error_outline, size: 72, color: Colors.red),
-                SizedBox(height: 24),
-                Text(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  size: 72,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(height: 24),
+                const Text(
                   'アプリを起動できませんでした',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
-                SizedBox(height: 12),
-                Text(
+                const SizedBox(height: 12),
+                const Text(
                   'Firebase設定・通信状態を確認し、アプリを再起動してください。',
                   textAlign: TextAlign.center,
                 ),
@@ -67,10 +122,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Sake Stop',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.orange),
-        useMaterial3: true,
-      ),
+      theme: _buildAppTheme(),
       home: const SakeStopApp(),
     );
   }
@@ -283,7 +335,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
             if (!mounted) return;
             ScaffoldMessenger.of(
               context,
-            ).showSnackBar(SnackBar(content: Text('飲食記録の取得に失敗しました: $error')));
+            ).showSnackBar(SnackBar(content: Text('注文履歴の取得に失敗しました: $error')));
           },
         );
   }
@@ -328,7 +380,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${drink.name} を記録内容に追加しました'),
+        content: Text('${drink.name} をカートに追加しました'),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -396,7 +448,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
         _isSubmittingOrder = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('飲食記録の送信に失敗しました。もう一度お試しください。($error)')),
+        SnackBar(content: Text('注文の送信に失敗しました。もう一度お試しください。($error)')),
       );
       return;
     }
@@ -420,8 +472,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     final isPaceAlert = _checkPaceNotification();
     final alcoholIn30Minutes = _calculateAlcoholInLast30Minutes();
     final message = isPaceAlert
-        ? '飲食内容を記録しました。過去30分の飲酒ペースが速くなっています（${alcoholIn30Minutes.toStringAsFixed(1)}g）'
-        : '飲食内容を記録しました';
+        ? '注文を受け付けました。飲酒ペースが少し速めです（過去30分 ${alcoholIn30Minutes.toStringAsFixed(1)}g）'
+        : '注文を受け付けました';
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(
       SnackBar(
@@ -435,7 +487,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
-  // 30分以内に20g以上摂取した場合に通知（bool値を返す）
+  // 30分以内の注文がビール500ml相当2杯前後を超えた場合に通知（bool値を返す）
   bool _checkPaceNotification() {
     final now = DateTime.now();
 
@@ -477,6 +529,9 @@ class _SakeStopAppState extends State<SakeStopApp> {
         onCartTapped: () => setState(() => _showCart = true),
         cartItemCount: _cartItems.fold(0, (sum, item) => sum + item.quantity),
         cartTotalAlcohol: _cartTotalAlcohol,
+        cartQuantities: {
+          for (final item in _cartItems) item.drink.name: item.quantity,
+        },
         onCheckout: _showCheckoutDialog,
         orderHistory: _orderHistory,
         onOrderHistoryTapped: () => setState(() => _showOrderHistory = true),
@@ -498,7 +553,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
         var isClosing = false;
         return StatefulBuilder(
           builder: (context, setDialogState) => AlertDialog(
-            title: const Text('記録を終了'),
+            title: const Text('利用を終了'),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,21 +563,36 @@ class _SakeStopAppState extends State<SakeStopApp> {
                 Text('記録数: ${_orderHistory.length}'),
                 const SizedBox(height: 16),
                 if (_cartItems.isNotEmpty) ...[
-                  Text(
-                    '未確定の${_cartItems.fold<int>(0, (sum, item) => sum + item.quantity)}点は破棄されます',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.tertiaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warning_amber_rounded),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '未確定の${_cartItems.fold<int>(0, (sum, item) => sum + item.quantity)}点は破棄されます',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
                 ],
-                const Text('記録を終了しますか？'),
+                const Text('利用を終了しますか？'),
                 const SizedBox(height: 12),
-                const Text('店舗へのお会計はスタッフへお声がけください'),
+                const Text('お会計はスタッフへお声がけください'),
               ],
             ),
             actions: [
               TextButton(
                 onPressed: isClosing ? null : () => Navigator.pop(context),
-                child: const Text('続ける'),
+                child: const Text('利用を続ける'),
               ),
               TextButton.icon(
                 onPressed: isClosing
@@ -548,7 +618,13 @@ class _SakeStopAppState extends State<SakeStopApp> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.check),
-                label: Text(isClosing ? '終了処理中...' : '記録を終了'),
+                label: Text(
+                  isClosing
+                      ? '終了処理中...'
+                      : _cartItems.isNotEmpty
+                      ? '未確定分を破棄して終了'
+                      : '利用を終了',
+                ),
               ),
             ],
           ),
@@ -660,7 +736,9 @@ class _QRScanScreenState extends State<QRScanScreen> {
             padding: const EdgeInsets.all(24),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: constraints.maxHeight - 48,
+                minHeight: constraints.maxHeight > 48
+                    ? constraints.maxHeight - 48
+                    : 0,
               ),
               child: Center(
                 child: ConstrainedBox(
@@ -689,8 +767,16 @@ class _QRScanScreenState extends State<QRScanScreen> {
         ),
         const SizedBox(height: 20),
         const Text(
-          '飲食内容とアルコール量を記録します',
+          'テーブルに表示されたID（例：T01）を入力',
           textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          '見当たらない場合はスタッフへお声がけください',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 24),
         const Text(
@@ -711,20 +797,17 @@ class _QRScanScreenState extends State<QRScanScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        ElevatedButton.icon(
+        FilledButton.icon(
           onPressed: _continueToNickname,
           icon: const Icon(Icons.arrow_forward),
-          label: const Text('次へ'),
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-          ),
+          label: const Text('このテーブルで進む'),
         ),
         if (_supportsCameraScan) ...[
           const SizedBox(height: 20),
           OutlinedButton.icon(
             onPressed: _openQrScanner,
             icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('QRがある場合はカメラで読み取る'),
+            label: const Text('テーブルのQRを読み取る'),
           ),
         ],
       ],
@@ -749,17 +832,18 @@ class _QRScanScreenState extends State<QRScanScreen> {
         const SizedBox(height: 8),
         const Text(
           '（未入力の場合は「ゲスト」となります）',
-          style: TextStyle(fontSize: 14, color: Colors.grey),
+          style: TextStyle(fontSize: 14),
         ),
         const SizedBox(height: 16),
-        Text(
-          '選択中のテーブル: $_scannedTableId',
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        Chip(
+          avatar: const Icon(Icons.table_restaurant, size: 18),
+          label: Text('テーブル $_scannedTableId'),
         ),
         const SizedBox(height: 32),
         TextField(
           controller: _nicknameController,
           enabled: !_isStarting,
+          onChanged: (_) => setState(() {}),
           textInputAction: TextInputAction.done,
           onSubmitted: (_) {
             if (!_isStarting) _start();
@@ -772,12 +856,28 @@ class _QRScanScreenState extends State<QRScanScreen> {
           ),
         ),
         const SizedBox(height: 24),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 16,
-          runSpacing: 12,
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ElevatedButton.icon(
+            FilledButton.icon(
+              onPressed: _isStarting ? null : _start,
+              icon: _isStarting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.arrow_forward),
+              label: Text(
+                _isStarting
+                    ? '開始中...'
+                    : _nicknameController.text.trim().isEmpty
+                    ? 'ゲストで始める'
+                    : 'この名前で始める',
+              ),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
               onPressed: _isStarting
                   ? null
                   : () {
@@ -789,24 +889,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
                     },
               icon: const Icon(Icons.arrow_back),
               label: const Text('テーブルを変更'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
-                ),
-              ),
-            ),
-            ElevatedButton.icon(
-              onPressed: _isStarting ? null : _start,
-              icon: _isStarting
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.arrow_forward),
-              label: Text(_isStarting ? '開始中...' : '開始'),
-              style: ElevatedButton.styleFrom(
+              style: OutlinedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 16,
@@ -837,6 +920,7 @@ class MenuScreen extends StatelessWidget {
   final VoidCallback onCartTapped;
   final int cartItemCount;
   final double cartTotalAlcohol;
+  final Map<String, int> cartQuantities;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
   final VoidCallback onOrderHistoryTapped;
@@ -850,6 +934,7 @@ class MenuScreen extends StatelessWidget {
     required this.onCartTapped,
     required this.cartItemCount,
     required this.cartTotalAlcohol,
+    required this.cartQuantities,
     required this.onCheckout,
     required this.orderHistory,
     required this.onOrderHistoryTapped,
@@ -869,20 +954,20 @@ class MenuScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('メニュー'),
+        title: const Text('ご注文'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.receipt_long),
             onPressed: onOrderHistoryTapped,
-            tooltip: '飲食記録を見る',
+            tooltip: '注文履歴を見る',
           ),
           Stack(
             children: [
               IconButton(
                 icon: const Icon(Icons.shopping_cart),
                 onPressed: onCartTapped,
-                tooltip: '記録内容を確認',
+                tooltip: 'カートを見る',
               ),
               if (cartItemCount > 0)
                 Positioned(
@@ -890,8 +975,8 @@ class MenuScreen extends StatelessWidget {
                   top: 8,
                   child: Container(
                     padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.error,
                       shape: BoxShape.circle,
                     ),
                     child: Text(
@@ -904,85 +989,130 @@ class MenuScreen extends StatelessWidget {
           ),
         ],
       ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ElevatedButton.icon(
-                onPressed: cartItemCount > 0 ? onCartTapped : null,
-                icon: const Icon(Icons.fact_check_outlined),
-                label: Text(
-                  '記録内容を確認（$cartItemCount点・純アルコール${cartTotalAlcohol.toStringAsFixed(1)}g）',
-                ),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 840),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (cartItemCount > 0) ...[
+                      FilledButton.icon(
+                        onPressed: onCartTapped,
+                        icon: const Icon(Icons.shopping_cart),
+                        label: Text('カートを見る（$cartItemCount点）'),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '純アルコール合計 ${cartTotalAlcohol.toStringAsFixed(1)}g',
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                    TextButton(
+                      onPressed: onCheckout,
+                      child: const Text('利用を終了'),
+                    ),
+                  ],
                 ),
               ),
-              TextButton(
-                onPressed: onCheckout,
-                child: const Text('記録を終了'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Row(
-              children: [
-                const Icon(Icons.table_restaurant, size: 18),
-                const SizedBox(width: 6),
-                Text('テーブル $tableId'),
-                const SizedBox(width: 20),
-                const Icon(Icons.person_outline, size: 18),
-                const SizedBox(width: 6),
-                Expanded(child: Text('呼び名 $nickname')),
-              ],
-            ),
-          ),
-          // アルコール摂取量表示（数値のみ）
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.blue[50],
-            child: Column(
-              children: [
-                const Text(
-                  '純アルコール摂取量',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Expanded(
+                      child: Text('商品を選んでカートに追加してください'),
+                    ),
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Text(
+                        '$tableId / $nickname',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.right,
+                        style: Theme.of(context).textTheme.labelSmall
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant.withValues(
+                                alpha: 0.72,
+                              ),
+                              fontWeight: FontWeight.w400,
+                            ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  '${totalPureAlcohol.toStringAsFixed(1)}g',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 32,
-                    color: Colors.blue,
+              ),
+          Card(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            color: Theme.of(context).colorScheme.primaryContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '純アルコール合計 ${totalPureAlcohol.toStringAsFixed(1)}g',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '過去30分: ${alcoholIn30Minutes.toStringAsFixed(1)}g',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.black54,
+                  const SizedBox(height: 6),
+                  Text(
+                    '過去30分 ${alcoholIn30Minutes.toStringAsFixed(1)}g・注文内容からの計算目安',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           if (alcoholIn30Minutes >= alcoholPaceThresholdGrams)
             Card(
               margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              color: Colors.amber.shade100,
-              child: const ListTile(
-                leading: Icon(Icons.warning_amber_rounded),
-                title: Text('過去30分の飲酒ペースが速くなっています'),
-                subtitle: Text('健康判断ではなく目安です'),
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: ListTile(
+                leading: Icon(
+                  Icons.warning_amber_rounded,
+                  color: Theme.of(context).colorScheme.onTertiaryContainer,
+                ),
+                title: Text(
+                  '飲酒ペースが少し速めです',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onTertiaryContainer,
+                  ),
+                ),
+                subtitle: Text(
+                  '水や食事を取り、ペースを落としましょう。健康判断ではなく目安です',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onTertiaryContainer,
+                  ),
+                ),
               ),
             ),
           // メニューリスト（セクション分け）
@@ -1003,25 +1133,35 @@ class MenuScreen extends StatelessWidget {
                 // 全アイテムリスト（セクションヘッダー含む）を作成
                 List<Widget> items = [];
 
+                Widget sectionHeader(IconData icon, String title) => Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Row(
+                    children: [
+                      Icon(icon),
+                      const SizedBox(width: 8),
+                      Text(title, style: Theme.of(context).textTheme.titleMedium),
+                    ],
+                  ),
+                );
+
+                Widget itemAction(Drink drink) {
+                  final quantity = cartQuantities[drink.name] ?? 0;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (quantity > 0) Text('カート $quantity点'),
+                      FilledButton.tonalIcon(
+                        onPressed: () => onAddToCart(drink),
+                        icon: const Icon(Icons.add),
+                        label: const Text('追加'),
+                      ),
+                    ],
+                  );
+                }
+
                 // アルコールセクション
                 if (alcoholicDrinks.isNotEmpty) {
-                  items.add(
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        top: 16.0,
-                        bottom: 8.0,
-                        left: 16.0,
-                        right: 16.0,
-                      ),
-                      child: Text(
-                        '🍺 アルコール',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  );
+                  items.add(sectionHeader(Icons.local_bar, 'アルコール'));
                   for (final drink in alcoholicDrinks) {
                     items.add(
                       Card(
@@ -1032,12 +1172,9 @@ class MenuScreen extends StatelessWidget {
                         child: ListTile(
                           title: Text(drink.name),
                           subtitle: Text(
-                            '${drink.volume}ml / ${drink.alcoholPercentage}%度',
+                            '${drink.volume.toStringAsFixed(0)} ml・${drink.alcoholPercentage.toStringAsFixed(0)}%・純アルコール${drink.calculatePureAlcohol().toStringAsFixed(1)}g',
                           ),
-                          trailing: ElevatedButton(
-                            onPressed: () => onAddToCart(drink),
-                            child: const Text('追加'),
-                          ),
+                          trailing: itemAction(drink),
                         ),
                       ),
                     );
@@ -1047,21 +1184,7 @@ class MenuScreen extends StatelessWidget {
                 // ノンアルコールセクション
                 if (nonAlcoholicDrinks.isNotEmpty) {
                   items.add(
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        top: 16.0,
-                        bottom: 8.0,
-                        left: 16.0,
-                        right: 16.0,
-                      ),
-                      child: Text(
-                        '🥤 ノンアルコール',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
+                    sectionHeader(Icons.local_drink, 'ノンアルコール'),
                   );
                   for (final drink in nonAlcoholicDrinks) {
                     items.add(
@@ -1072,11 +1195,10 @@ class MenuScreen extends StatelessWidget {
                         ),
                         child: ListTile(
                           title: Text(drink.name),
-                          subtitle: const Text('ノンアルコール'),
-                          trailing: ElevatedButton(
-                            onPressed: () => onAddToCart(drink),
-                            child: const Text('追加'),
+                          subtitle: Text(
+                            '${drink.volume.toStringAsFixed(0)} ml・ノンアルコール',
                           ),
+                          trailing: itemAction(drink),
                         ),
                       ),
                     );
@@ -1085,23 +1207,7 @@ class MenuScreen extends StatelessWidget {
 
                 // フードセクション
                 if (foodItems.isNotEmpty) {
-                  items.add(
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        top: 16.0,
-                        bottom: 8.0,
-                        left: 16.0,
-                        right: 16.0,
-                      ),
-                      child: Text(
-                        '🍽️ フード',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  );
+                  items.add(sectionHeader(Icons.restaurant, 'フード'));
                   for (final drink in foodItems) {
                     items.add(
                       Card(
@@ -1112,10 +1218,7 @@ class MenuScreen extends StatelessWidget {
                         child: ListTile(
                           title: Text(drink.name),
                           subtitle: const Text('フード'),
-                          trailing: ElevatedButton(
-                            onPressed: () => onAddToCart(drink),
-                            child: const Text('追加'),
-                          ),
+                          trailing: itemAction(drink),
                         ),
                       ),
                     );
@@ -1126,7 +1229,9 @@ class MenuScreen extends StatelessWidget {
               },
             ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1250,32 +1355,35 @@ class OrderHistoryScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('飲食記録'),
+        title: const Text('注文履歴'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: onBack,
         ),
       ),
-      body: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            color: Colors.blue[50],
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: Column(
+            children: [
+          Card(
+            margin: const EdgeInsets.all(16),
+            color: Theme.of(context).colorScheme.primaryContainer,
             child: Column(
               children: [
                 Text(
-                  '記録数: ${orderHistory.length}',
+                  '注文数: ${orderHistory.length}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '\u7d14\u30a2\u30eb\u30b3\u30fc\u30eb\u5408\u8a08 ${totalPureAlcohol.toStringAsFixed(1)}g',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 20,
-                    color: Colors.blue,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
                 ),
               ],
@@ -1285,7 +1393,7 @@ class OrderHistoryScreen extends StatelessWidget {
             child: latestFirst.isEmpty
                 ? const Center(
                     child: Text(
-                      'まだ飲食記録がありません',
+                      'まだ注文履歴がありません',
                     ),
                   )
                 : ListView.builder(
@@ -1310,7 +1418,9 @@ class OrderHistoryScreen extends StatelessWidget {
                     },
                   ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1347,28 +1457,41 @@ class CartScreen extends StatelessWidget {
       0,
       (sum, item) => sum + item.totalPureAlcohol,
     );
+    final totalItems = cartItems.fold<int>(
+      0,
+      (sum, item) => sum + item.quantity,
+    );
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('記録内容の確認'),
+        title: const Text('注文内容の確認'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: isSubmittingOrder ? null : onBack,
         ),
       ),
-      body: cartItems.isEmpty
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 840),
+          child: cartItems.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.shopping_cart_outlined,
                     size: 80,
-                    color: Colors.grey,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                   const SizedBox(height: 16),
-                  const Text('記録内容がありません'),
+                  Text(
+                    'カートは空です',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                   const SizedBox(height: 24),
                   ElevatedButton(
                     onPressed: isSubmittingOrder ? null : onBack,
@@ -1424,6 +1547,7 @@ class CartScreen extends StatelessWidget {
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.delete_outline),
+                                    tooltip: 'カートから削除',
                                     onPressed: isSubmittingOrder
                                         ? null
                                         : () => onRemove(item),
@@ -1438,6 +1562,7 @@ class CartScreen extends StatelessWidget {
                                     icon: const Icon(
                                       Icons.remove_circle_outline,
                                     ),
+                                    tooltip: '数量を減らす',
                                     onPressed: isSubmittingOrder
                                         ? null
                                         : () => onQuantityChanged(item, -1),
@@ -1454,6 +1579,7 @@ class CartScreen extends StatelessWidget {
                                   ),
                                   IconButton(
                                     icon: const Icon(Icons.add_circle_outline),
+                                    tooltip: '数量を増やす',
                                     onPressed: isSubmittingOrder
                                         ? null
                                         : () => onQuantityChanged(item, 1),
@@ -1470,16 +1596,18 @@ class CartScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.blue[50],
+                    color: Theme.of(context).colorScheme.surface,
                     border: Border(
-                      top: BorderSide(color: Colors.grey.shade300),
+                      top: BorderSide(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        '記録内容の合計: 純アルコール ${totalPureAlcohol.toStringAsFixed(1)}g',
+                        '合計 $totalItems点・純アルコール ${totalPureAlcohol.toStringAsFixed(1)}g',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           fontSize: 18,
@@ -1488,11 +1616,11 @@ class CartScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'この内容を記録します',
+                        'この内容で注文します',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
-                      ElevatedButton.icon(
+                      FilledButton.icon(
                         onPressed: isSubmittingOrder ? null : onConfirmOrder,
                         icon: isSubmittingOrder
                             ? const SizedBox(
@@ -1504,12 +1632,7 @@ class CartScreen extends StatelessWidget {
                               )
                             : const Icon(Icons.check),
                         label: Text(
-                          isSubmittingOrder ? '記録中...' : '飲食記録に追加',
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
-                          foregroundColor: Theme.of(context).colorScheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          isSubmittingOrder ? '注文送信中...' : '注文を確定',
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -1523,6 +1646,8 @@ class CartScreen extends StatelessWidget {
                 ),
               ],
             ),
+        ),
+      ),
     );
   }
 }

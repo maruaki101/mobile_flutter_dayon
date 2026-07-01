@@ -13,11 +13,11 @@ void main() {
     expect(find.text('テーブルIDを入力してください'), findsOneWidget);
 
     await tester.enterText(find.byType(TextField), '  T01  ');
-    await tester.tap(find.text('次へ'));
+    await tester.tap(find.text('このテーブルで進む'));
     await tester.pump();
 
     expect(find.text('ニックネームを入力してください'), findsOneWidget);
     final nicknameField = tester.widget<TextField>(find.byType(TextField));
-    expect(nicknameField.decoration?.hintText, 'ニックネーム');
+    expect(nicknameField.decoration?.labelText, '呼び名（任意）');
   });
 }
