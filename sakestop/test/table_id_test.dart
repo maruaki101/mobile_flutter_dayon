@@ -3,7 +3,7 @@ import 'package:sakestop/table_id.dart';
 
 void main() {
   group('normalizedValidTableId', () {
-    test('手入力とQR共通で前後の空白を除いて有効値を返す', () {
+    test('手入力値の前後の空白を除いて有効値を返す', () {
       expect(normalizedValidTableId('  Table_01-A  '), 'Table_01-A');
     });
 

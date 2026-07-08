@@ -6,7 +6,7 @@ void main() {
   testWidgets('テーブルID入力からニックネーム入力へ進む', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: QRScanScreen(onScanned: (tableId, nickname) async => true),
+        home: TableEntryScreen(onSubmitted: (tableId, nickname) async => true),
       ),
     );
 

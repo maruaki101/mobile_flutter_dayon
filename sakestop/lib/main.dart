@@ -2,9 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:uuid/uuid.dart';
 
 import 'alcohol_pace.dart';
@@ -235,9 +233,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
       return true;
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('エラー: $e')));
+        _showSnackBar('エラー: $e');
       }
       return false;
     }
@@ -251,9 +247,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
             .update({'closed_at': ServerValue.timestamp});
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('記録の終了に失敗しました。もう一度お試しください。($e)')),
-          );
+          _showSnackBar('記録の終了に失敗しました。もう一度お試しください。($e)');
         }
         return false;
       }
@@ -333,9 +327,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
           },
           onError: (Object error) {
             if (!mounted) return;
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text('注文履歴の取得に失敗しました: $error')));
+            _showSnackBar('注文履歴の取得に失敗しました: $error');
           },
         );
   }
@@ -360,6 +352,27 @@ class _SakeStopAppState extends State<SakeStopApp> {
     ),
   );
 
+  void _showSnackBar(
+    String message, {
+    Duration duration = const Duration(seconds: 3),
+    bool showCloseAction = false,
+  }) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: duration,
+        action: showCloseAction
+            ? SnackBarAction(
+                label: '閉じる',
+                onPressed: () => messenger.hideCurrentSnackBar(),
+              )
+            : null,
+      ),
+    );
+  }
+
   double _calculateAlcoholInLast30Minutes() {
     return calculateAlcoholWithin(
       intakes: _alcoholIntakes,
@@ -378,11 +391,9 @@ class _SakeStopAppState extends State<SakeStopApp> {
       _cartItems.add(CartItem(drink: drink));
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${drink.name} をカートに追加しました'),
-        duration: const Duration(seconds: 2),
-      ),
+    _showSnackBar(
+      '${drink.name} をカートに追加しました',
+      duration: const Duration(milliseconds: 1200),
     );
   }
 
@@ -447,9 +458,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
       setState(() {
         _isSubmittingOrder = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('注文の送信に失敗しました。もう一度お試しください。($error)')),
-      );
+      _showSnackBar('注文の送信に失敗しました。もう一度お試しください。($error)');
       return;
     }
 
@@ -474,16 +483,10 @@ class _SakeStopAppState extends State<SakeStopApp> {
     final message = isPaceAlert
         ? '注文を受け付けました。飲酒ペースが少し速めです（過去30分 ${alcoholIn30Minutes.toStringAsFixed(1)}g）'
         : '注文を受け付けました';
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 4),
-        action: SnackBarAction(
-          label: '閉じる',
-          onPressed: () => messenger.hideCurrentSnackBar(),
-        ),
-      ),
+    _showSnackBar(
+      message,
+      duration: const Duration(seconds: 4),
+      showCloseAction: true,
     );
   }
 
@@ -505,7 +508,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
   @override
   Widget build(BuildContext context) {
     if (_tableId == null) {
-      return QRScanScreen(onScanned: _startSession);
+      return TableEntryScreen(onSubmitted: _startSession);
     } else if (_showCart) {
       return CartScreen(
         cartItems: _cartItems,
@@ -634,21 +637,21 @@ class _SakeStopAppState extends State<SakeStopApp> {
   }
 }
 
-// ========== QRスキャン・ニックネーム入力画面 ==========
+// ========== テーブルID・ニックネーム入力画面 ==========
 
-class QRScanScreen extends StatefulWidget {
-  final Future<bool> Function(String, String) onScanned;
+class TableEntryScreen extends StatefulWidget {
+  final Future<bool> Function(String, String) onSubmitted;
 
-  const QRScanScreen({super.key, required this.onScanned});
+  const TableEntryScreen({super.key, required this.onSubmitted});
 
   @override
-  State<QRScanScreen> createState() => _QRScanScreenState();
+  State<TableEntryScreen> createState() => _TableEntryScreenState();
 }
 
-class _QRScanScreenState extends State<QRScanScreen> {
+class _TableEntryScreenState extends State<TableEntryScreen> {
   final TextEditingController _tableIdController = TextEditingController();
   final TextEditingController _nicknameController = TextEditingController();
-  String? _scannedTableId;
+  String? _selectedTableId;
   String? _tableIdError;
   String? _nicknameError;
   bool _isStarting = false;
@@ -666,34 +669,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
     _tableIdController.text = tableId;
     setState(() {
       _tableIdError = null;
-      _scannedTableId = tableId;
-    });
-  }
-
-  bool get _supportsCameraScan {
-    if (kIsWeb) return true;
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.android:
-      case TargetPlatform.iOS:
-      case TargetPlatform.macOS:
-        return true;
-      case TargetPlatform.fuchsia:
-      case TargetPlatform.linux:
-      case TargetPlatform.windows:
-        return false;
-    }
-  }
-
-  Future<void> _openQrScanner() async {
-    final tableId = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (context) => const TableQrScannerScreen()),
-    );
-    if (!mounted || tableId == null) return;
-
-    _tableIdController.text = tableId;
-    setState(() {
-      _tableIdError = null;
-      _scannedTableId = tableId;
+      _selectedTableId = tableId;
     });
   }
 
@@ -714,7 +690,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
       _isStarting = true;
     });
 
-    final succeeded = await widget.onScanned(_scannedTableId!, nickname);
+    final succeeded = await widget.onSubmitted(_selectedTableId!, nickname);
     if (!mounted) return;
     if (!succeeded) {
       setState(() {
@@ -727,7 +703,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_scannedTableId == null ? 'テーブルを選択' : 'ニックネーム入力'),
+        title: Text(_selectedTableId == null ? 'テーブルを選択' : 'ニックネーム入力'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: SafeArea(
@@ -743,8 +719,8 @@ class _QRScanScreenState extends State<QRScanScreen> {
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 480),
-                  child: _scannedTableId == null
-                      ? _buildQRScanScreen(context)
+                  child: _selectedTableId == null
+                      ? _buildTableIdScreen(context)
                       : _buildNicknameScreen(context),
                 ),
               ),
@@ -755,7 +731,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
     );
   }
 
-  Widget _buildQRScanScreen(BuildContext context) {
+  Widget _buildTableIdScreen(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -802,14 +778,6 @@ class _QRScanScreenState extends State<QRScanScreen> {
           icon: const Icon(Icons.arrow_forward),
           label: const Text('このテーブルで進む'),
         ),
-        if (_supportsCameraScan) ...[
-          const SizedBox(height: 20),
-          OutlinedButton.icon(
-            onPressed: _openQrScanner,
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('テーブルのQRを読み取る'),
-          ),
-        ],
       ],
     );
   }
@@ -837,7 +805,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
         const SizedBox(height: 16),
         Chip(
           avatar: const Icon(Icons.table_restaurant, size: 18),
-          label: Text('テーブル $_scannedTableId'),
+          label: Text('テーブル $_selectedTableId'),
         ),
         const SizedBox(height: 32),
         TextField(
@@ -882,7 +850,7 @@ class _QRScanScreenState extends State<QRScanScreen> {
                   ? null
                   : () {
                       setState(() {
-                        _scannedTableId = null;
+                        _selectedTableId = null;
                         _nicknameError = null;
                         _nicknameController.clear();
                       });
@@ -1146,16 +1114,17 @@ class MenuScreen extends StatelessWidget {
 
                 Widget itemAction(Drink drink) {
                   final quantity = cartQuantities[drink.name] ?? 0;
-                  return Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (quantity > 0) Text('カート $quantity点'),
-                      FilledButton.tonalIcon(
-                        onPressed: () => onAddToCart(drink),
-                        icon: const Icon(Icons.add),
-                        label: const Text('追加'),
+                  return SizedBox(
+                    width: 112,
+                    child: FilledButton.tonalIcon(
+                      onPressed: () => onAddToCart(drink),
+                      icon: const Icon(Icons.add),
+                      label: Text(
+                        quantity > 0 ? '$quantity点' : '追加',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
+                    ),
                   );
                 }
 
@@ -1232,104 +1201,6 @@ class MenuScreen extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class TableQrScannerScreen extends StatefulWidget {
-  const TableQrScannerScreen({super.key});
-
-  @override
-  State<TableQrScannerScreen> createState() => _TableQrScannerScreenState();
-}
-
-class _TableQrScannerScreenState extends State<TableQrScannerScreen> {
-  bool _hasAcceptedValue = false;
-  String? _lastInvalidValue;
-  String? _errorMessage;
-
-  void _onDetect(BarcodeCapture capture) {
-    if (_hasAcceptedValue || !mounted) return;
-
-    String? invalidValue;
-    for (final barcode in capture.barcodes) {
-      if (barcode.format != BarcodeFormat.qrCode) continue;
-      final rawValue = barcode.rawValue;
-      if (rawValue == null) continue;
-
-      final tableId = normalizedValidTableId(rawValue);
-      if (tableId != null) {
-        _hasAcceptedValue = true;
-        Navigator.of(context).pop(tableId);
-        return;
-      }
-      invalidValue ??= rawValue;
-    }
-
-    if (invalidValue == null || invalidValue == _lastInvalidValue || !mounted) {
-      return;
-    }
-    setState(() {
-      _lastInvalidValue = invalidValue;
-      _errorMessage =
-          'このQRコードはテーブルIDとして使用できません。'
-          '別のQRコードをかざしてください。';
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('QRスキャン'),
-        leading: IconButton(
-          onPressed: () => Navigator.of(context).pop(),
-          icon: const Icon(Icons.close),
-          tooltip: 'キャンセル',
-        ),
-      ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          MobileScanner(onDetect: _onDetect),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: SafeArea(
-              child: Container(
-                width: double.infinity,
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.black87,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _errorMessage ?? 'テーブルのQRコードを枠内にかざしてください',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: _errorMessage == null
-                            ? Colors.white
-                            : Colors.orangeAccent,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('キャンセル'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }
