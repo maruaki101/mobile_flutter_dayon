@@ -1025,7 +1025,8 @@ class MenuScreen extends StatelessWidget {
           ),
         ],
       ),
-      bottomNavigationBar: DecoratedBox(
+      bottomNavigationBar: null, /*
+      DecoratedBox(
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
           border: Border(
@@ -1068,11 +1069,12 @@ class MenuScreen extends StatelessWidget {
           ),
         ),
       ),
+      */
       body: Align(
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 840),
-          child: Column(
+          child: ListView(
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
@@ -1161,10 +1163,9 @@ class MenuScreen extends StatelessWidget {
                 ),
               ),
             ),
-          // メニューリスト（セクション分け）
-          Expanded(
-            child: Builder(
-              builder: (context) {
+              // メニューリスト（セクション分け）
+              Builder(
+                builder: (context) {
                 // セクション別にアイテムを分類
                 final alcoholicDrinks = drinkMenu
                     .where((d) => d.alcoholPercentage > 0)
@@ -1272,10 +1273,37 @@ class MenuScreen extends StatelessWidget {
                   }
                 }
 
-                return ListView(children: items);
-              },
-            ),
-          ),
+                items.add(
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (cartItemCount > 0) ...[
+                          FilledButton.icon(
+                            onPressed: onCartTapped,
+                            icon: const Icon(Icons.shopping_cart),
+                            label: Text('カートを見る（$cartItemCount点）'),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '純アルコール合計 ${cartTotalAlcohol.toStringAsFixed(1)}g',
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        TextButton(
+                          onPressed: onCheckout,
+                          child: const Text('利用を終了'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+
+                return Column(children: items);
+                },
+              ),
             ],
           ),
         ),
