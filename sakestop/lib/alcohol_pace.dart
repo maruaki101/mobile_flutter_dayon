@@ -1,5 +1,5 @@
 const alcoholPaceWindow = Duration(minutes: 30);
-const alcoholPaceThresholdGrams = 40.0;
+const alcoholPaceThresholdGrams = 60.0;
 const alcoholPaceCooldown = Duration(minutes: 30);
 
 class AlcoholIntake {

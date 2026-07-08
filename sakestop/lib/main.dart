@@ -198,9 +198,34 @@ class _SakeStopAppState extends State<SakeStopApp> {
   bool _isSubmittingOrder = false;
   StreamSubscription<DatabaseEvent>? _ordersSubscription;
   DateTime? _lastPaceNotificationAt;
+  DateTime? _nextRecommendedDrinkAt;
+  Timer? _nextRecommendedDrinkTimer;
 
   double get _cartTotalAlcohol =>
       _cartItems.fold(0.0, (sum, item) => sum + item.totalPureAlcohol);
+
+  String? get _nextRecommendedDrinkTimerText {
+    final nextAt = _nextRecommendedDrinkAt;
+    if (nextAt == null) return null;
+
+    final remaining = nextAt.difference(DateTime.now());
+    final totalSeconds = remaining.isNegative
+        ? 0
+        : (remaining.inMilliseconds / 1000).ceil();
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Duration _calculateOrderInterval(Drink drink) {
+    final pureAlcohol = drink.calculatePureAlcohol();
+    if (pureAlcohol <= 0) return Duration.zero;
+
+    final seconds =
+        (alcoholPaceWindow.inSeconds * pureAlcohol / alcoholPaceThresholdGrams)
+            .round();
+    return Duration(seconds: seconds);
+  }
 
   Future<bool> _startSession(String tableId, String nickname) async {
     final memberId = const Uuid().v4();
@@ -228,6 +253,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
         _showOrderHistory = false;
         _isSubmittingOrder = false;
         _lastPaceNotificationAt = null;
+        _nextRecommendedDrinkAt = null;
       });
       _listenToOrderHistory(tableId, sessionId, memberId);
       return true;
@@ -269,7 +295,9 @@ class _SakeStopAppState extends State<SakeStopApp> {
       _showOrderHistory = false;
       _isSubmittingOrder = false;
       _lastPaceNotificationAt = null;
+      _nextRecommendedDrinkAt = null;
     });
+    _stopNextRecommendedDrinkTimer();
     return true;
   }
 
@@ -385,11 +413,25 @@ class _SakeStopAppState extends State<SakeStopApp> {
       for (final item in _cartItems) {
         if (item.drink.name == drink.name) {
           item.quantity++;
+          if (drink.alcoholPercentage > 0) {
+            _nextRecommendedDrinkAt = DateTime.now().add(
+              _calculateOrderInterval(drink),
+            );
+          }
           return;
         }
       }
       _cartItems.add(CartItem(drink: drink));
+      if (drink.alcoholPercentage > 0) {
+        _nextRecommendedDrinkAt = DateTime.now().add(
+          _calculateOrderInterval(drink),
+        );
+      }
     });
+
+    if (drink.alcoholPercentage > 0) {
+      _startNextRecommendedDrinkTimer();
+    }
 
     _showSnackBar(
       '${drink.name} をカートに追加しました',
@@ -406,6 +448,29 @@ class _SakeStopAppState extends State<SakeStopApp> {
         _cartItems.remove(item);
       }
     });
+  }
+
+  void _startNextRecommendedDrinkTimer() {
+    _nextRecommendedDrinkTimer?.cancel();
+    _nextRecommendedDrinkTimer = Timer.periodic(const Duration(seconds: 1), (
+      timer,
+    ) {
+      final nextRecommendedDrinkAt = _nextRecommendedDrinkAt;
+      if (!mounted || nextRecommendedDrinkAt == null) {
+        timer.cancel();
+        return;
+      }
+
+      if (!DateTime.now().isBefore(nextRecommendedDrinkAt)) {
+        timer.cancel();
+      }
+      setState(() {});
+    });
+  }
+
+  void _stopNextRecommendedDrinkTimer() {
+    _nextRecommendedDrinkTimer?.cancel();
+    _nextRecommendedDrinkTimer = null;
   }
 
   void _removeFromCart(CartItem item) {
@@ -490,7 +555,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
-  // 30分以内の注文がビール500ml相当2杯前後を超えた場合に通知（bool値を返す）
+  // 30分以内の注文がビール500ml相当3杯前後を超えた場合に通知（bool値を返す）
   bool _checkPaceNotification() {
     final now = DateTime.now();
 
@@ -535,6 +600,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
         cartQuantities: {
           for (final item in _cartItems) item.drink.name: item.quantity,
         },
+        nextRecommendedDrinkTimerText: _nextRecommendedDrinkTimerText,
         onCheckout: _showCheckoutDialog,
         orderHistory: _orderHistory,
         onOrderHistoryTapped: () => setState(() => _showOrderHistory = true),
@@ -545,6 +611,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
   @override
   void dispose() {
     unawaited(_ordersSubscription?.cancel());
+    _stopNextRecommendedDrinkTimer();
     super.dispose();
   }
 
@@ -889,6 +956,7 @@ class MenuScreen extends StatelessWidget {
   final int cartItemCount;
   final double cartTotalAlcohol;
   final Map<String, int> cartQuantities;
+  final String? nextRecommendedDrinkTimerText;
   final VoidCallback onCheckout;
   final List<OrderRecord> orderHistory;
   final VoidCallback onOrderHistoryTapped;
@@ -903,6 +971,7 @@ class MenuScreen extends StatelessWidget {
     required this.cartItemCount,
     required this.cartTotalAlcohol,
     required this.cartQuantities,
+    required this.nextRecommendedDrinkTimerText,
     required this.onCheckout,
     required this.orderHistory,
     required this.onOrderHistoryTapped,
@@ -919,7 +988,6 @@ class MenuScreen extends StatelessWidget {
       ),
       now: DateTime.now(),
     );
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('ご注文'),
@@ -1056,6 +1124,16 @@ class MenuScreen extends StatelessWidget {
                       color: Theme.of(context).colorScheme.onPrimaryContainer,
                     ),
                   ),
+                  if (nextRecommendedDrinkTimerText != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      nextRecommendedDrinkTimerText!,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

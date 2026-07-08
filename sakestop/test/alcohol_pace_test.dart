@@ -34,24 +34,24 @@ void main() {
     final now = DateTime(2026, 6, 24, 12);
     final thresholdIntakes = [
       AlcoholIntake(
-        pureAlcohol: 40,
+        pureAlcohol: 60,
         timestamp: now.subtract(const Duration(minutes: 5)),
       ),
     ];
 
-    test('30分以内に40g以上なら通知する', () {
+    test('30分以内に60g以上なら通知する', () {
       expect(
         shouldNotifyAlcoholPace(intakes: thresholdIntakes, now: now),
         isTrue,
       );
     });
 
-    test('30分以内で40g未満なら通知しない', () {
+    test('30分以内で60g未満なら通知しない', () {
       expect(
         shouldNotifyAlcoholPace(
           intakes: [
             AlcoholIntake(
-              pureAlcohol: 39.9,
+              pureAlcohol: 59.9,
               timestamp: now.subtract(const Duration(minutes: 5)),
             ),
           ],
