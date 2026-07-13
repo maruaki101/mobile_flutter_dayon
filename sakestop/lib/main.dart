@@ -9,6 +9,9 @@ import 'alcohol_pace.dart';
 import 'firebase_options.dart';
 import 'table_id.dart';
 
+// アプリの起動処理
+// - Firebase を初期化し、成功したら通常のアプリ画面を起動
+// - 初期化に失敗した場合はエラー専用画面を表示
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -21,6 +24,7 @@ void main() async {
   }
 }
 
+// アプリ全体で使う共通テーマを構築する関数
 ThemeData _buildAppTheme() {
   final scheme = ColorScheme.fromSeed(
     seedColor: const Color(0xFF9A3412),
@@ -186,24 +190,35 @@ class SakeStopApp extends StatefulWidget {
 }
 
 class _SakeStopAppState extends State<SakeStopApp> {
+  // 現在の利用テーブル・セッション・メンバー情報
   String? _tableId;
   String? _sessionId;
   String? _memberId;
   String? _nickname;
+
+  // 注文履歴の計算用
   double _totalPureAlcohol = 0.0;
   List<OrderRecord> _orderHistory = [];
+
+  // カートの状態管理
   List<CartItem> _cartItems = [];
   bool _showCart = false;
   bool _showOrderHistory = false;
   bool _isSubmittingOrder = false;
+
+  // Firebase の注文履歴購読
   StreamSubscription<DatabaseEvent>? _ordersSubscription;
+
+  // 飲酒ペース通知の管理
   DateTime? _lastPaceNotificationAt;
   DateTime? _nextRecommendedDrinkAt;
   Timer? _nextRecommendedDrinkTimer;
 
+  // カート内の純アルコール合計を計算
   double get _cartTotalAlcohol =>
       _cartItems.fold(0.0, (sum, item) => sum + item.totalPureAlcohol);
 
+  // 次におすすめのドリンクまでの残り時間をテキスト化
   String? get _nextRecommendedDrinkTimerText {
     final nextAt = _nextRecommendedDrinkAt;
     if (nextAt == null) return null;
@@ -217,6 +232,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  // 次の注文までの推奨間隔を計算
+  // 飲酒ペースのしきい値に応じて、ドリンクごとに待つべき時間を決める
   Duration _calculateOrderInterval(Drink drink) {
     final pureAlcohol = drink.calculatePureAlcohol();
     if (pureAlcohol <= 0) return Duration.zero;
@@ -227,12 +244,13 @@ class _SakeStopAppState extends State<SakeStopApp> {
     return Duration(seconds: seconds);
   }
 
+  // テーブルとニックネームからセッションを開始し、Firebase にメンバーを登録
+  // 成功後に注文履歴の購読を開始する
   Future<bool> _startSession(String tableId, String nickname) async {
     final memberId = const Uuid().v4();
     final sessionId = const Uuid().v4();
 
     try {
-      // Firebaseにメンバー登録
       await FirebaseDatabase.instance
           .ref('tables/$tableId/sessions/$sessionId/members/$memberId')
           .set({
@@ -265,6 +283,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     }
   }
 
+  // セッションを終了して Firebase に終了時刻を記録し、ローカル状態をリセット
   Future<bool> _resetSession() async {
     if (_tableId != null && _sessionId != null) {
       try {
@@ -301,6 +320,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     return true;
   }
 
+  // Firebase 注文履歴の realtime 監視を開始
+  // - データベースの orders ノードが更新されるとここが呼ばれて画面を更新する
   void _listenToOrderHistory(
     String tableId,
     String sessionId,
@@ -373,6 +394,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     return null;
   }
 
+  // 注文履歴を AlcoholIntake 型に変換して飲酒ペースの判定で使う
   Iterable<AlcoholIntake> get _alcoholIntakes => _orderHistory.map(
     (order) => AlcoholIntake(
       pureAlcohol: order.pureAlcohol,
@@ -380,6 +402,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     ),
   );
 
+  // 画面下部にメッセージを表示する共通メソッド
   void _showSnackBar(
     String message, {
     Duration duration = const Duration(seconds: 3),
@@ -401,6 +424,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
+  // 過去30分間の純アルコール量を再計算
   double _calculateAlcoholInLast30Minutes() {
     return calculateAlcoholWithin(
       intakes: _alcoholIntakes,
@@ -408,6 +432,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
+  // カートに商品を追加、すでに同じ商品があれば数量を増やす
+  // アルコール飲料の場合は次のおすすめドリンクタイマーも更新する
   void _addToCart(Drink drink) {
     setState(() {
       for (final item in _cartItems) {
@@ -439,6 +465,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
+  // カート内の数量を変更する
   void _updateCartQuantity(CartItem item, int delta) {
     if (_isSubmittingOrder) return;
 
@@ -450,6 +477,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     });
   }
 
+  // 次におすすめのドリンクまでのカウントダウンを1秒ごとに更新
   void _startNextRecommendedDrinkTimer() {
     _nextRecommendedDrinkTimer?.cancel();
     _nextRecommendedDrinkTimer = Timer.periodic(const Duration(seconds: 1), (
@@ -468,6 +496,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     });
   }
 
+  // タイマーを停止して破棄する
   void _stopNextRecommendedDrinkTimer() {
     _nextRecommendedDrinkTimer?.cancel();
     _nextRecommendedDrinkTimer = null;
@@ -481,6 +510,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
     });
   }
 
+  // カートの内容を確定し、Firebase に注文データを保存する
   Future<void> _confirmOrder() async {
     if (_cartItems.isEmpty || _isSubmittingOrder) return;
 
@@ -555,7 +585,8 @@ class _SakeStopAppState extends State<SakeStopApp> {
     );
   }
 
-  // 30分以内の注文がビール500ml相当3杯前後を超えた場合に通知（bool値を返す）
+  // 飲酒ペース通知の判定
+  // 30分以内の合計純アルコールがしきい値を超え、クールダウン時間を過ぎていれば通知を出す
   bool _checkPaceNotification() {
     final now = DateTime.now();
 
@@ -706,6 +737,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
 
 // ========== テーブルID・ニックネーム入力画面 ==========
 
+// テーブルIDとニックネームを入力して、利用セッションを開始する画面
 class TableEntryScreen extends StatefulWidget {
   final Future<bool> Function(String, String) onSubmitted;
 
@@ -947,6 +979,7 @@ class _TableEntryScreenState extends State<TableEntryScreen> {
 
 // ========== メニュー画面 ==========
 
+// テーブルごとの注文メニュー画面
 class MenuScreen extends StatelessWidget {
   final String tableId;
   final String nickname;
@@ -1312,6 +1345,9 @@ class MenuScreen extends StatelessWidget {
   }
 }
 
+// ========== 注文履歴画面 ==========
+
+// 過去の注文を一覧表示する画面
 class OrderHistoryScreen extends StatelessWidget {
   final List<OrderRecord> orderHistory;
   final VoidCallback onBack;
@@ -1410,6 +1446,9 @@ class OrderHistoryScreen extends StatelessWidget {
   String _twoDigits(int value) => value.toString().padLeft(2, '0');
 }
 
+// ========== カート確認画面 ==========
+
+// カート内の注文内容を確認し、確定を送信する画面
 class CartScreen extends StatelessWidget {
   final List<CartItem> cartItems;
   final bool isSubmittingOrder;
