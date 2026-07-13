@@ -40,7 +40,7 @@ double calculateAlcoholWithin({
 }
 
 // 飲酒ペース通知が必要か判定する
-// - 過去 window 間の純アルコール合計が thresholdGrams を超える
+// - 過去 window 間の純アルコール合計が thresholdGrams 以上
 // - 直近の通知から cooldown 以上経過している
 bool shouldNotifyAlcoholPace({
   required Iterable<AlcoholIntake> intakes,

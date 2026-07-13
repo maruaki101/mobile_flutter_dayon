@@ -586,7 +586,7 @@ class _SakeStopAppState extends State<SakeStopApp> {
   }
 
   // 飲酒ペース通知の判定
-  // 30分以内の合計純アルコールがしきい値を超え、クールダウン時間を過ぎていれば通知を出す
+  // 30分以内の合計純アルコールがしきい値以上で、クールダウン時間を過ぎていれば通知を出す
   bool _checkPaceNotification() {
     final now = DateTime.now();
 
